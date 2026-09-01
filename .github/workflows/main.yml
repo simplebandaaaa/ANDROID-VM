@@ -14,20 +14,28 @@ jobs:
     - name: Install Desktop Environment & XRDP
       run: |
         sudo apt update
-        sudo apt install -y xfce4 xfce4-goodies xrdp
+        sudo apt install -y xfce4 xfce4-goodies xrdp dbus-x11
         sudo adduser xrdp ssl-cert
 
-    - name: Create Custom RDP User & Set Password
+    - name: Setup User and Fix XFCE Failsafe Error
       run: |
         sudo useradd -m -s /bin/bash rdpuser
         echo 'rdpuser:Password123' | sudo chpasswd
         sudo usermod -aG sudo rdpuser
-        echo "xfce4-session" | sudo tee /home/rdpuser/.xsession
-        sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
+        
+        # Session error fix commands
+        sudo -u rdpuser bash -c 'echo "startxfce4" > /home/rdpuser/.xsession'
+        sudo chmod +x /home/rdpuser/.xsession
+        
+        # System-wide XRDP session config fix
+        sudo sed -i 's/test -x \/etc\/X11\/Xsession && exec \/etc\/X11\/Xsession/exec startxfce4/g' /etc/xrdp/startwm.sh
+        
         sudo service xrdp restart
 
     - name: Connect to Tailscale
       uses: tailscale/github-action@v2
+      env:
+        TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
       with:
         authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
 

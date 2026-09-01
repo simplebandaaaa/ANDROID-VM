@@ -15,13 +15,16 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y xfce4 xfce4-goodies xrdp
-        echo "xfce4-session" > ~/.xsession
         sudo adduser xrdp ssl-cert
-        sudo service xrdp restart
 
-    - name: Set Password for Runner User
+    - name: Create Custom RDP User & Set Password
       run: |
-        echo "runner:Password123" | sudo passwd runner
+        sudo useradd -m -s /bin/bash rdpuser
+        echo 'rdpuser:Password123' | sudo chpasswd
+        sudo usermod -aG sudo rdpuser
+        echo "xfce4-session" | sudo tee /home/rdpuser/.xsession
+        sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
+        sudo service xrdp restart
 
     - name: Connect to Tailscale
       uses: tailscale/github-action@v2

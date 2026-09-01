@@ -9,24 +9,24 @@ jobs:
     timeout-minutes: 350
 
     steps:
-      - name: Fix Package Conflicts & Update APT
+      - name: Purge Pre-installed Docker & Fix APT
         run: |
-          sudo apt-get clean
-          sudo apt-get update --fix-missing -qq
+          sudo apt-get remove -y docker docker-engine docker.io containerd runc containerd.io || true
+          sudo apt-get update -qq
           sudo apt-get install -f -y
 
-      - name: Install LXQt, XRDP & Utilities
+      - name: Install Desktop, XRDP & Utilities
         run: |
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             lxqt-core lxqt-session openbox xrdp dbus-x11 adb scrcpy docker.io
 
-      - name: Setup User & Permissions
+      - name: Setup RDP User & Permissions
         run: |
           sudo useradd -m -s /bin/bash rdpuser
           echo 'rdpuser:Ubuntu@12345' | sudo chpasswd
           sudo usermod -aG sudo,docker rdpuser
 
-      - name: Configure LXQt Session
+      - name: Configure Fast LXQt Session
         run: |
           sudo -u rdpuser bash -c 'printf "%s\n" "startlxqt" > /home/rdpuser/.xsession'
           sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
@@ -49,8 +49,9 @@ jobs:
 
           sudo chmod 755 /etc/xrdp/startwm.sh
 
-      - name: Start Redroid (Android 11 Container)
+      - name: Start Redroid (Android Container)
         run: |
+          sudo systemctl unmask docker || true
           sudo systemctl start docker
           sudo docker run -d --privileged \
             --name redroid \

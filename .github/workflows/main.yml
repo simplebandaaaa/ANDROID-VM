@@ -1,4 +1,4 @@
-name: Tailscale Ubuntu RDP - Smooth
+name: Tailscale Ubuntu RDP (Lag Free)
 
 on:
   workflow_dispatch:
@@ -8,440 +8,59 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # ==========================================
-      # CHECKOUT
-      # ==========================================
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # ==========================================
-      # INSTALL LIGHTWEIGHT XFCE + XRDP
-      # ==========================================
-      - name: Install Lightweight XFCE XRDP
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          sudo apt-get update
-
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            xfce4 \
-            xfce4-session \
-            xfce4-panel \
-            xfce4-settings \
-            xfwm4 \
-            xfdesktop4 \
-            xfce4-terminal \
-            xrdp \
-            xorgxrdp \
-            dbus-x11 \
-            dbus-user-session \
-            sudo \
-            curl \
-            ca-certificates \
-            iproute2 \
-            net-tools \
-            procps
-
-          # Remove unnecessary heavy XFCE components
-          sudo apt-get purge -y \
-            xfce4-goodies \
-            parole \
-            orage \
-            ristretto \
-            mousepad \
-            2>/dev/null || true
-
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-
-      # ==========================================
-      # CREATE USER
-      # ==========================================
-      - name: Create RDP User
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          USERNAME="rdpuser"
-          PASSWORD="Password123"
-
-          if ! id "$USERNAME" >/dev/null 2>&1; then
-            sudo useradd \
-              --create-home \
-              --shell /bin/bash \
-              "$USERNAME"
-          fi
-
-          echo "$USERNAME:$PASSWORD" | sudo chpasswd
-
-          sudo usermod -aG sudo "$USERNAME"
-          sudo usermod -aG ssl-cert xrdp
-
-          sudo chown -R "$USERNAME:$USERNAME" \
-            "/home/$USERNAME"
-
-      # ==========================================
-      # XFCE LOW-LAG CONFIG
-      # ==========================================
-      - name: Configure XFCE For Low Latency
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          USERNAME="rdpuser"
-          HOME_DIR="/home/$USERNAME"
-
-          sudo -u "$USERNAME" mkdir -p \
-            "$HOME_DIR/.config/xfce4/xfconf/xfce-perchannel-xml"
-
-          # XRDP XFCE session
-          sudo -u "$USERNAME" tee \
-            "$HOME_DIR/.xsession" > /dev/null <<'EOF'
-          #!/bin/sh
-
-          export LANG=C.UTF-8
-          export LC_ALL=C.UTF-8
-
-          export XDG_CURRENT_DESKTOP=XFCE
-          export XDG_SESSION_DESKTOP=xfce
-          export DESKTOP_SESSION=xfce
-
-          unset DBUS_SESSION_BUS_ADDRESS
-          unset XDG_RUNTIME_DIR
-
-          exec dbus-launch --exit-with-session startxfce4
-          EOF
-
-          sudo chmod +x "$HOME_DIR/.xsession"
-
-          # --------------------------------------
-          # XFWM - DISABLE COMPOSITOR
-          # --------------------------------------
-          sudo -u "$USERNAME" tee \
-            "$HOME_DIR/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml" > /dev/null <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-
-          <channel name="xfwm4" version="1.0">
-            <property name="general" type="empty">
-
-              <property name="use_compositing"
-                        type="bool"
-                        value="false"/>
-
-              <property name="show_dock_shadow"
-                        type="bool"
-                        value="false"/>
-
-              <property name="show_frame_shadow"
-                        type="bool"
-                        value="false"/>
-
-              <property name="box_move"
-                        type="bool"
-                        value="false"/>
-
-              <property name="box_resize"
-                        type="bool"
-                        value="false"/>
-
-              <property name="workspace_count"
-                        type="int"
-                        value="1"/>
-
-            </property>
-          </channel>
-          EOF
-
-          # --------------------------------------
-          # XFCE SESSION
-          # --------------------------------------
-          sudo -u "$USERNAME" tee \
-            "$HOME_DIR/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml" > /dev/null <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-
-          <channel name="xfce4-session" version="1.0">
-
-            <property name="general" type="empty">
-
-              <property name="SaveOnExit"
-                        type="bool"
-                        value="false"/>
-
-              <property name="PromptOnLogout"
-                        type="bool"
-                        value="false"/>
-
-              <property name="FailsafeSessionName"
-                        type="string"
-                        value="xfce"/>
-
-            </property>
-
-          </channel>
-          EOF
-
-          # --------------------------------------
-          # DISABLE DESKTOP ICONS
-          # --------------------------------------
-          sudo -u "$USERNAME" tee \
-            "$HOME_DIR/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml" > /dev/null <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-
-          <channel name="xfce4-desktop" version="1.0">
-
-            <property name="desktop-icons"
-                      type="empty">
-
-              <property name="style"
-                        type="int"
-                        value="0"/>
-
-            </property>
-
-          </channel>
-          EOF
-
-          # --------------------------------------
-          # DISABLE SCREEN SAVER
-          # --------------------------------------
-          sudo -u "$USERNAME" mkdir -p \
-            "$HOME_DIR/.config/autostart"
-
-          sudo -u "$USERNAME" tee \
-            "$HOME_DIR/.config/autostart/disable-screensaver.desktop" > /dev/null <<'EOF'
-          [Desktop Entry]
-          Type=Application
-          Name=Disable Screen Saver
-          Exec=xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/blank-on-ac -s 0
-          Hidden=false
-          NoDisplay=true
-          X-GNOME-Autostart-enabled=true
-          EOF
-
-          sudo chown -R "$USERNAME:$USERNAME" \
-            "$HOME_DIR/.config"
-
-      # ==========================================
-      # XRDP OPTIMIZATION
-      # ==========================================
-      - name: Optimize XRDP
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          # xrdp user permissions
-          sudo usermod -aG ssl-cert xrdp
-
-          # Backup
-          sudo cp /etc/xrdp/startwm.sh \
-            /etc/xrdp/startwm.sh.backup
-
-          # Lightweight startup
-          sudo tee /etc/xrdp/startwm.sh > /dev/null <<'EOF'
-          #!/bin/sh
-
-          export LANG=C.UTF-8
-          export LC_ALL=C.UTF-8
-
-          export XDG_CURRENT_DESKTOP=XFCE
-          export XDG_SESSION_DESKTOP=xfce
-          export DESKTOP_SESSION=xfce
-
-          unset DBUS_SESSION_BUS_ADDRESS
-          unset XDG_RUNTIME_DIR
-
-          [ -r /etc/profile ] && . /etc/profile
-          [ -r "$HOME/.profile" ] && . "$HOME/.profile"
-
-          exec dbus-launch --exit-with-session startxfce4
-          EOF
-
-          sudo chmod +x /etc/xrdp/startwm.sh
-
-          # --------------------------------------
-          # XRDP CONFIG
-          # --------------------------------------
-          sudo sed -i 's/^port=.*/port=3389/' \
-            /etc/xrdp/xrdp.ini
-
-          # Reduce unnecessary logging
-          sudo sed -i \
-            's/^LogLevel=.*/LogLevel=ERROR/' \
-            /etc/xrdp/xrdp.ini || true
-
-          sudo systemctl daemon-reload
-          sudo systemctl enable xrdp
-          sudo systemctl restart xrdp
-
-          sleep 3
-
-          echo "XRDP status:"
-          sudo systemctl --no-pager status xrdp || true
-
-          echo
-          echo "Port:"
-          sudo ss -lntp | grep ':3389'
-
-      # ==========================================
-      # SYSTEM PERFORMANCE
-      # ==========================================
-      - name: Optimize Ubuntu Performance
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          echo "Applying performance optimizations..."
-
-          # Reduce swappiness
-          sudo sysctl -w vm.swappiness=10 || true
-
-          # Reduce background journal size
-          sudo journalctl --vacuum-size=50M || true
-
-          # Disable unnecessary services if present
-          for SERVICE in \
-            bluetooth \
-            cups \
-            cups-browsed \
-            ModemManager \
-            avahi-daemon
-          do
-            sudo systemctl disable --now "$SERVICE" \
-              2>/dev/null || true
-          done
-
-          echo
-          echo "Memory:"
-          free -h
-
-          echo
-          echo "CPU:"
-          nproc
-
-      # ==========================================
-      # INSTALL TAILSCALE
-      # ==========================================
-      - name: Install Tailscale
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          curl -fsSL \
-            https://tailscale.com/install.sh | sh
-
-          sudo systemctl enable --now tailscaled
-
-          sleep 3
-
-          tailscale version
-
-      # ==========================================
-      # CONNECT TAILSCALE
-      # ==========================================
-      - name: Connect Tailscale
-        shell: bash
-        env:
-          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${TAILSCALE_AUTHKEY:-}" ]; then
-            echo "ERROR: TAILSCALE_AUTHKEY is empty."
-            exit 1
-          fi
-
-          sudo tailscale up \
-            --authkey="${TAILSCALE_AUTHKEY}" \
-            --hostname="github-ubuntu-rdp"
-
-          sleep 5
-
-          echo
-          echo "Tailscale status:"
-          sudo tailscale status
-
-      # ==========================================
-      # SHOW CONNECTION INFORMATION
-      # ==========================================
-      - name: Show RDP Information
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TS_IP="$(tailscale ip -4 | head -n 1)"
-
-          echo
-          echo "================================================"
-          echo "       SMOOTH UBUNTU RDP READY"
-          echo "================================================"
-          echo
-          echo "Tailscale IP : $TS_IP"
-          echo "RDP Address  : $TS_IP:3389"
-          echo
-          echo "Username     : rdpuser"
-          echo "Password     : Password123"
-          echo
-          echo "Desktop      : XFCE"
-          echo "Compositor   : DISABLED"
-          echo "Animations   : MINIMAL"
-          echo "Workspace    : 1"
-          echo
-          echo "================================================"
-
-      # ==========================================
-      # VERIFY
-      # ==========================================
-      - name: Verify RDP
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Checking XRDP..."
-
-          if ! sudo systemctl is-active --quiet xrdp; then
-            echo "ERROR: XRDP is not running."
-            sudo journalctl -u xrdp --no-pager -n 100
-            exit 1
-          fi
-
-          if ! sudo ss -lnt | grep -q ':3389'; then
-            echo "ERROR: Port 3389 is not listening."
-            sudo journalctl -u xrdp --no-pager -n 100
-            exit 1
-          fi
-
-          echo
-          echo "XRDP: OK"
-          echo "Port 3389: OK"
-          echo "Tailscale: OK"
-
-      # ==========================================
-      # KEEP ALIVE
-      # ==========================================
-      - name: Keep RDP Alive
-        shell: bash
-        run: |
-          echo
-          echo "================================================"
-          echo " RDP SERVER RUNNING"
-          echo "================================================"
-
-          while true; do
-
-            echo
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] RDP heartbeat"
-
-            if ! sudo systemctl is-active --quiet xrdp; then
-              echo "XRDP stopped - restarting..."
-              sudo systemctl restart xrdp
-            fi
-
-            if ! sudo tailscale status >/dev/null 2>&1; then
-              echo "Tailscale problem detected."
-            fi
-
-            sleep 30
-
-          done
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Fast Desktop & XRDP
+      run: |
+        sudo apt update
+        sudo apt install -y mate-desktop-environment mate-indicator-applet xrdp dbus-x11 xorgxrdp
+        sudo adduser xrdp ssl-cert
+
+    - name: Optimize XRDP Settings for High Speed & Low Latency
+      run: |
+        # Color depth 16-bit for low bandwidth & zero lag
+        sudo sed -i 's/max_bpp=32/max_bpp=16/g' /etc/xrdp/xrdp.ini
+        sudo sed -i 's/xserverbpp=24/xserverbpp=16/g' /etc/xrdp/xrdp.ini
+        
+        # Maximize CPU compression threads
+        sudo sed -i 's/#ls_top_window_enable=true/ls_top_window_enable=false/g' /etc/xrdp/xrdp.ini
+        sudo sed -i 's/crypt_level=high/crypt_level=low/g' /etc/xrdp/xrdp.ini
+
+    - name: Setup User & Session Config
+      run: |
+        sudo useradd -m -s /bin/bash rdpuser
+        echo 'rdpuser:Password123' | sudo chpasswd
+        sudo usermod -aG sudo rdpuser
+        
+        # Set MATE as default desktop
+        echo "mate-session" | sudo tee /home/rdpuser/.xsession
+        sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
+        
+        # Overwrite startwm.sh for high performance
+        sudo bash -c 'cat <<EOF > /etc/xrdp/startwm.sh
+        #!/bin/sh
+        export MATE_XAUTHORITY_GUEST=1
+        exec mate-session
+        EOF'
+        
+        sudo chmod +x /etc/xrdp/startwm.sh
+        sudo service xrdp restart
+
+    - name: Connect to Tailscale
+      uses: tailscale/github-action@v2
+      env:
+        TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      with:
+        authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+    - name: Display Tailscale IP Address
+      run: |
+        echo "=========================================="
+        echo "Tailscale IP:"
+        tailscale ip -4
+        echo "=========================================="
+
+    - name: Keep RDP Alive
+      run: |
+        sleep 6h

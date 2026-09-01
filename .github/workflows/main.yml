@@ -1,66 +1,83 @@
-name: Tailscale Ubuntu RDP (100% Fixed)
+name: Ubuntu 24.04 LXQt RDP (Ultra Fast)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  rdp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Install LXQt & Speed Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            openbox lxqt-session lxqt-qtplugin xrdp dbus-x11 libgl1-mesa-dri
 
-    - name: Install LXDE, VNC & XRDP
-      run: |
-        sudo apt update
-        sudo apt install -y lxde tightvncserver xrdp dbus-x11
+      - name: Create RDP user
+        run: |
+          sudo useradd -m -s /bin/bash rdpuser
+          echo 'rdpuser:Ubuntu@12345' | sudo chpasswd
+          sudo usermod -aG sudo rdpuser
 
-    - name: Setup User & Session Config
-      run: |
-        sudo useradd -m -s /bin/bash rdpuser
-        echo 'rdpuser:Password123' | sudo chpasswd
-        sudo usermod -aG sudo rdpuser
+      - name: Optimize XRDP Settings for High Speed & Low Latency
+        run: |
+          # Color depth 16-bit for fast streaming & zero lag
+          sudo sed -i 's/max_bpp=32/max_bpp=16/g' /etc/xrdp/xrdp.ini
+          sudo sed -i 's/xserverbpp=24/xserverbpp=16/g' /etc/xrdp/xrdp.ini
+          sudo sed -i 's/crypt_level=high/crypt_level=low/g' /etc/xrdp/xrdp.ini
+          
+          # Enable RFX compression for instant response
+          sudo sed -i 's/#rfx=true/rfx=true/g' /etc/xrdp/xrdp.ini
 
-        # Create session startup script
-        sudo bash -c 'cat << "EOF" > /home/rdpuser/.xsession
-        #!/bin/sh
-        export XDG_DATA_DIRS=/usr/share/lxde:/usr/share/gdm:/usr/local/share:/usr/share
-        exec startlxde
-        EOF'
+      - name: Configure Fast LXQt Session
+        run: |
+          sudo -u rdpuser bash -c 'printf "%s\n" "startlxqt" > /home/rdpuser/.xsession'
+          sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
+          sudo chmod 755 /home/rdpuser/.xsession
 
-        sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
-        sudo chmod +x /home/rdpuser/.xsession
+          sudo tee /etc/xrdp/startwm.sh > /dev/null <<'EOF'
+          #!/bin/sh
+          unset DBUS_SESSION_BUS_ADDRESS
+          unset XDG_RUNTIME_DIR
 
-        # Force XRDP startwm to use LXDE
-        sudo bash -c 'cat << "EOF" > /etc/xrdp/startwm.sh
-        #!/bin/sh
-        if [ -r /etc/default/locale ]; then
-            . /etc/default/locale
-            export LANG LANGUAGE
-        fi
-        export XDG_SESSION_TYPE=x11
-        export XDG_CURRENT_DESKTOP=LXDE
-        exec startlxde
-        EOF'
+          # Speed & Rendering Optimizations
+          export LIBGL_ALWAYS_SOFTWARE=1
+          export QT_QUICK_BACKEND=software
+          export XDG_CONFIG_DIRS=/etc/xdg/xdg-LXQt:/etc/xdg:/etc
+          export XDG_CURRENT_DESKTOP=LXQt
+          export XDG_SESSION_DESKTOP=LXQt
+          export DESKTOP_SESSION=LXQt
 
-        sudo chmod +x /etc/xrdp/startwm.sh
-        sudo service xrdp restart
+          exec dbus-run-session -- startlxqt
+          EOF
 
-    - name: Connect to Tailscale
-      uses: tailscale/github-action@v2
-      env:
-        TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
-      with:
-        authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          sudo chmod 755 /etc/xrdp/startwm.sh
 
-    - name: Display Tailscale IP Address
-      run: |
-        echo "=========================================="
-        echo "Tailscale IP:"
-        tailscale ip -4
-        echo "=========================================="
+      - name: Start XRDP Service
+        run: |
+          sudo service xrdp restart
+          sleep 2
 
-    - name: Keep RDP Alive
-      run: |
-        sleep 6h
+      - name: Connect Tailscale
+        uses: tailscale/github-action@v2
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Show connection details
+        run: |
+          sleep 2
+          echo "=========================================="
+          echo "TAILSCALE IP:"
+          tailscale ip -4
+          echo "=========================================="
+          echo "RDP USER: rdpuser"
+          echo "RDP PASSWORD: Ubuntu@12345"
+          echo "=========================================="
+
+      - name: Keep alive
+        run: |
+          sleep 5.5h

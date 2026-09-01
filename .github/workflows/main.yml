@@ -1,4 +1,4 @@
-name: Tailscale Ubuntu RDP (Lag Free)
+name: Tailscale Ubuntu RDP (Black Screen Fix)
 
 on:
   workflow_dispatch:
@@ -11,39 +11,35 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install Fast Desktop & XRDP
+    - name: Install XFCE Desktop & XRDP
       run: |
         sudo apt update
-        sudo apt install -y mate-desktop-environment mate-indicator-applet xrdp dbus-x11 xorgxrdp
+        sudo apt install -y xfce4 xfce4-goodies xrdp dbus-x11 x11-xserver-utils
         sudo adduser xrdp ssl-cert
 
-    - name: Optimize XRDP Settings for High Speed & Low Latency
-      run: |
-        # Color depth 16-bit for low bandwidth & zero lag
-        sudo sed -i 's/max_bpp=32/max_bpp=16/g' /etc/xrdp/xrdp.ini
-        sudo sed -i 's/xserverbpp=24/xserverbpp=16/g' /etc/xrdp/xrdp.ini
-        
-        # Maximize CPU compression threads
-        sudo sed -i 's/#ls_top_window_enable=true/ls_top_window_enable=false/g' /etc/xrdp/xrdp.ini
-        sudo sed -i 's/crypt_level=high/crypt_level=low/g' /etc/xrdp/xrdp.ini
-
-    - name: Setup User & Session Config
+    - name: Setup User & Fix Black Screen Session Variables
       run: |
         sudo useradd -m -s /bin/bash rdpuser
         echo 'rdpuser:Password123' | sudo chpasswd
         sudo usermod -aG sudo rdpuser
-        
-        # Set MATE as default desktop
-        echo "mate-session" | sudo tee /home/rdpuser/.xsession
-        sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
-        
-        # Overwrite startwm.sh for high performance
+
+        # User specific xsession setup
+        sudo -u rdpuser bash -c 'echo "exec startxfce4" > /home/rdpuser/.xsession'
+        sudo chmod +x /home/rdpuser/.xsession
+
+        # Fix startwm.sh to load DBus properly (Solves Black Screen Issue)
         sudo bash -c 'cat <<EOF > /etc/xrdp/startwm.sh
         #!/bin/sh
-        export MATE_XAUTHORITY_GUEST=1
-        exec mate-session
+        if [ -r /etc/default/locale ]; then
+            . /etc/default/locale
+            export LANG LANGUAGE
+        fi
+        export XDG_SESSION_TYPE=x11
+        export XDG_CURRENT_DESKTOP=XFCE
+        export XDG_CONFIG_DIRS=/etc/xdg
+        exec dbus-launch --exit-with-session startxfce4
         EOF'
-        
+
         sudo chmod +x /etc/xrdp/startwm.sh
         sudo service xrdp restart
 

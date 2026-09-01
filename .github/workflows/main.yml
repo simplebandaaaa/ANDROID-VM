@@ -1,4 +1,4 @@
-name: Tailscale Ubuntu RDP (Black Screen Fix)
+name: Tailscale Ubuntu RDP (100% Fixed)
 
 on:
   workflow_dispatch:
@@ -11,36 +11,39 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install XFCE Desktop & XRDP
+    - name: Install XFCE & Clear Old Configs
       run: |
         sudo apt update
         sudo apt install -y xfce4 xfce4-goodies xrdp dbus-x11 x11-xserver-utils
-        sudo adduser xrdp ssl-cert
+        
+        # Purane session conflicts remove karein
+        sudo apt remove -y gnome-session gnome-terminal || true
 
-    - name: Setup User & Fix Black Screen Session Variables
+    - name: Configure XRDP & Environment Variables
       run: |
+        # Custom User setup
         sudo useradd -m -s /bin/bash rdpuser
         echo 'rdpuser:Password123' | sudo chpasswd
         sudo usermod -aG sudo rdpuser
 
-        # User specific xsession setup
-        sudo -u rdpuser bash -c 'echo "exec startxfce4" > /home/rdpuser/.xsession'
+        # User ki .xsession file configure karein
+        sudo bash -c 'echo "dbus-launch --exit-with-session xfce4-session" > /home/rdpuser/.xsession'
+        sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
         sudo chmod +x /home/rdpuser/.xsession
 
-        # Fix startwm.sh to load DBus properly (Solves Black Screen Issue)
-        sudo bash -c 'cat <<EOF > /etc/xrdp/startwm.sh
+        # Global XRDP startup script ko complete overwrite karein (Failsafe bypass)
+        sudo bash -c 'cat << "EOF" > /etc/xrdp/startwm.sh
         #!/bin/sh
-        if [ -r /etc/default/locale ]; then
-            . /etc/default/locale
-            export LANG LANGUAGE
-        fi
+        unset DBUS_SESSION_BUS_ADDRESS
+        unset XDG_RUNTIME_DIR
         export XDG_SESSION_TYPE=x11
         export XDG_CURRENT_DESKTOP=XFCE
         export XDG_CONFIG_DIRS=/etc/xdg
-        exec dbus-launch --exit-with-session startxfce4
+        exec dbus-launch --exit-with-session xfce4-session
         EOF'
 
         sudo chmod +x /etc/xrdp/startwm.sh
+        sudo adduser xrdp ssl-cert
         sudo service xrdp restart
 
     - name: Connect to Tailscale

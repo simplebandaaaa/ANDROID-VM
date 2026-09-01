@@ -1,4 +1,4 @@
-name: Ubuntu 24.04 RDP with Android (Redroid)
+name: Ubuntu 24.04 Fast RDP + Android
 
 on:
   workflow_dispatch:
@@ -9,24 +9,20 @@ jobs:
     timeout-minutes: 350
 
     steps:
-      - name: Purge Pre-installed Docker & Fix APT
+      - name: Fast System Update & Desktop Install
         run: |
-          sudo apt-get remove -y docker docker-engine docker.io containerd runc containerd.io || true
           sudo apt-get update -qq
-          sudo apt-get install -f -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            lxqt-core lxqt-session openbox xrdp dbus-x11 adb scrcpy > /dev/null
 
-      - name: Install Desktop, XRDP & Utilities
+      - name: Fast Docker Setup
         run: |
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            lxqt-core lxqt-session openbox xrdp dbus-x11 adb scrcpy docker.io
-
-      - name: Setup RDP User & Permissions
-        run: |
+          sudo systemctl start docker
           sudo useradd -m -s /bin/bash rdpuser
           echo 'rdpuser:Ubuntu@12345' | sudo chpasswd
           sudo usermod -aG sudo,docker rdpuser
 
-      - name: Configure Fast LXQt Session
+      - name: Fast Session Setup
         run: |
           sudo -u rdpuser bash -c 'printf "%s\n" "startlxqt" > /home/rdpuser/.xsession'
           sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
@@ -48,11 +44,10 @@ jobs:
           EOF
 
           sudo chmod 755 /etc/xrdp/startwm.sh
+          sudo service xrdp restart
 
-      - name: Start Redroid (Android Container)
+      - name: Pull & Run Android Container
         run: |
-          sudo systemctl unmask docker || true
-          sudo systemctl start docker
           sudo docker run -d --privileged \
             --name redroid \
             -p 5555:5555 \
@@ -61,11 +56,6 @@ jobs:
             androidboot.redroid_height=1280 \
             androidboot.redroid_dpi=320
 
-      - name: Start XRDP Service
-        run: |
-          sudo service xrdp restart
-          sleep 2
-
       - name: Connect Tailscale
         uses: tailscale/github-action@v2
         env:
@@ -73,9 +63,8 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
 
-      - name: Show Connection Details
+      - name: Connection Details
         run: |
-          sleep 2
           echo "=========================================="
           echo "TAILSCALE IP:"
           tailscale ip -4

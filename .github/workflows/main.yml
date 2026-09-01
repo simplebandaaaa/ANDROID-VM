@@ -9,43 +9,25 @@ jobs:
     timeout-minutes: 350
 
     steps:
-      - name: Install LXQt, XRDP & Docker
+      - name: Fix Package Conflicts & Update APT
         run: |
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            openbox lxqt-session lxqt-qtplugin xrdp dbus-x11 docker.io docker-compose
+          sudo apt-get clean
+          sudo apt-get update --fix-missing -qq
+          sudo apt-get install -f -y
 
-      - name: Load Android Kernel Modules (Binder)
+      - name: Install LXQt, XRDP & Utilities
         run: |
-          sudo modprobe binder_linux || true
-          sudo systemctl start docker
-          sudo usermod -aG docker $USER
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            lxqt-core lxqt-session openbox xrdp dbus-x11 adb scrcpy docker.io
 
-      - name: Run Redroid (Android 11 Container)
-        run: |
-          sudo docker run -d --privileged \
-            --name redroid \
-            -p 5555:5555 \
-            redroid/redroid:11.0.0-latest \
-            androidboot.redroid_width=720 \
-            androidboot.redroid_height=1280 \
-            androidboot.redroid_dpi=320
-
-      - name: Create RDP user
+      - name: Setup User & Permissions
         run: |
           sudo useradd -m -s /bin/bash rdpuser
           echo 'rdpuser:Ubuntu@12345' | sudo chpasswd
           sudo usermod -aG sudo,docker rdpuser
 
-      - name: Optimize XRDP Settings
+      - name: Configure LXQt Session
         run: |
-          sudo sed -i 's/max_bpp=32/max_bpp=16/g' /etc/xrdp/xrdp.ini
-          sudo sed -i 's/xserverbpp=24/xserverbpp=16/g' /etc/xrdp/xrdp.ini
-          sudo sed -i 's/crypt_level=high/crypt_level=low/g' /etc/xrdp/xrdp.ini
-
-      - name: Configure LXQt Session & Scrcpy
-        run: |
-          sudo apt-get install -y scrcpy adb
           sudo -u rdpuser bash -c 'printf "%s\n" "startlxqt" > /home/rdpuser/.xsession'
           sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
           sudo chmod 755 /home/rdpuser/.xsession
@@ -54,6 +36,7 @@ jobs:
           #!/bin/sh
           unset DBUS_SESSION_BUS_ADDRESS
           unset XDG_RUNTIME_DIR
+
           export LIBGL_ALWAYS_SOFTWARE=1
           export QT_QUICK_BACKEND=software
           export XDG_CONFIG_DIRS=/etc/xdg/xdg-LXQt:/etc/xdg:/etc
@@ -65,6 +48,17 @@ jobs:
           EOF
 
           sudo chmod 755 /etc/xrdp/startwm.sh
+
+      - name: Start Redroid (Android 11 Container)
+        run: |
+          sudo systemctl start docker
+          sudo docker run -d --privileged \
+            --name redroid \
+            -p 5555:5555 \
+            redroid/redroid:11.0.0-latest \
+            androidboot.redroid_width=720 \
+            androidboot.redroid_height=1280 \
+            androidboot.redroid_dpi=320
 
       - name: Start XRDP Service
         run: |
@@ -78,7 +72,7 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
 
-      - name: Show connection details
+      - name: Show Connection Details
         run: |
           sleep 2
           echo "=========================================="
@@ -89,6 +83,6 @@ jobs:
           echo "RDP PASSWORD: Ubuntu@12345"
           echo "=========================================="
 
-      - name: Keep alive
+      - name: Keep Alive
         run: |
           sleep 5.5h

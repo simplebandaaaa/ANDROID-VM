@@ -11,39 +11,40 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install XFCE & Clear Old Configs
+    - name: Install LXDE, VNC & XRDP
       run: |
         sudo apt update
-        sudo apt install -y xfce4 xfce4-goodies xrdp dbus-x11 x11-xserver-utils
-        
-        # Purane session conflicts remove karein
-        sudo apt remove -y gnome-session gnome-terminal || true
+        sudo apt install -y lxde tightvncserver xrdp dbus-x11
 
-    - name: Configure XRDP & Environment Variables
+    - name: Setup User & Session Config
       run: |
-        # Custom User setup
         sudo useradd -m -s /bin/bash rdpuser
         echo 'rdpuser:Password123' | sudo chpasswd
         sudo usermod -aG sudo rdpuser
 
-        # User ki .xsession file configure karein
-        sudo bash -c 'echo "dbus-launch --exit-with-session xfce4-session" > /home/rdpuser/.xsession'
+        # Create session startup script
+        sudo bash -c 'cat << "EOF" > /home/rdpuser/.xsession
+        #!/bin/sh
+        export XDG_DATA_DIRS=/usr/share/lxde:/usr/share/gdm:/usr/local/share:/usr/share
+        exec startlxde
+        EOF'
+
         sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
         sudo chmod +x /home/rdpuser/.xsession
 
-        # Global XRDP startup script ko complete overwrite karein (Failsafe bypass)
+        # Force XRDP startwm to use LXDE
         sudo bash -c 'cat << "EOF" > /etc/xrdp/startwm.sh
         #!/bin/sh
-        unset DBUS_SESSION_BUS_ADDRESS
-        unset XDG_RUNTIME_DIR
+        if [ -r /etc/default/locale ]; then
+            . /etc/default/locale
+            export LANG LANGUAGE
+        fi
         export XDG_SESSION_TYPE=x11
-        export XDG_CURRENT_DESKTOP=XFCE
-        export XDG_CONFIG_DIRS=/etc/xdg
-        exec dbus-launch --exit-with-session xfce4-session
+        export XDG_CURRENT_DESKTOP=LXDE
+        exec startlxde
         EOF'
 
         sudo chmod +x /etc/xrdp/startwm.sh
-        sudo adduser xrdp ssl-cert
         sudo service xrdp restart
 
     - name: Connect to Tailscale

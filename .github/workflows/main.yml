@@ -8,22 +8,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
     - name: Install Desktop Environment & XRDP
       run: |
         sudo apt update
         sudo apt install -y xfce4 xfce4-goodies xrdp
-        echo xfce4-session > ~/.xsession
-        sudo service xrdp start
+        echo "xfce4-session" > ~/.xsession
+        sudo adduser xrdp ssl-cert
+        sudo service xrdp restart
 
-    - name: Set RDP Password
+    - name: Set Password for Runner User
       run: |
-        echo "runneradmin:Password123" | sudo chpasswd
+        echo "runner:Password123" | sudo passwd runner
 
     - name: Connect to Tailscale
       uses: tailscale/github-action@v2
       with:
-        oauth-secret: ''
         authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+    - name: Display Tailscale IP Address
+      run: |
+        echo "=========================================="
+        echo "Tailscale IP:"
+        tailscale ip -4
+        echo "=========================================="
 
     - name: Keep RDP Alive
       run: |

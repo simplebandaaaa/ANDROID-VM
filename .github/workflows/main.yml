@@ -1,4 +1,4 @@
-name: Ubuntu 24.04 LXQt RDP (Ultra Fast)
+name: Ubuntu 24.04 RDP with Android (Redroid)
 
 on:
   workflow_dispatch:
@@ -9,30 +9,43 @@ jobs:
     timeout-minutes: 350
 
     steps:
-      - name: Install LXQt & Speed Dependencies
+      - name: Install LXQt, XRDP & Docker
         run: |
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            openbox lxqt-session lxqt-qtplugin xrdp dbus-x11 libgl1-mesa-dri
+            openbox lxqt-session lxqt-qtplugin xrdp dbus-x11 docker.io docker-compose
+
+      - name: Load Android Kernel Modules (Binder)
+        run: |
+          sudo modprobe binder_linux || true
+          sudo systemctl start docker
+          sudo usermod -aG docker $USER
+
+      - name: Run Redroid (Android 11 Container)
+        run: |
+          sudo docker run -d --privileged \
+            --name redroid \
+            -p 5555:5555 \
+            redroid/redroid:11.0.0-latest \
+            androidboot.redroid_width=720 \
+            androidboot.redroid_height=1280 \
+            androidboot.redroid_dpi=320
 
       - name: Create RDP user
         run: |
           sudo useradd -m -s /bin/bash rdpuser
           echo 'rdpuser:Ubuntu@12345' | sudo chpasswd
-          sudo usermod -aG sudo rdpuser
+          sudo usermod -aG sudo,docker rdpuser
 
-      - name: Optimize XRDP Settings for High Speed & Low Latency
+      - name: Optimize XRDP Settings
         run: |
-          # Color depth 16-bit for fast streaming & zero lag
           sudo sed -i 's/max_bpp=32/max_bpp=16/g' /etc/xrdp/xrdp.ini
           sudo sed -i 's/xserverbpp=24/xserverbpp=16/g' /etc/xrdp/xrdp.ini
           sudo sed -i 's/crypt_level=high/crypt_level=low/g' /etc/xrdp/xrdp.ini
-          
-          # Enable RFX compression for instant response
-          sudo sed -i 's/#rfx=true/rfx=true/g' /etc/xrdp/xrdp.ini
 
-      - name: Configure Fast LXQt Session
+      - name: Configure LXQt Session & Scrcpy
         run: |
+          sudo apt-get install -y scrcpy adb
           sudo -u rdpuser bash -c 'printf "%s\n" "startlxqt" > /home/rdpuser/.xsession'
           sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
           sudo chmod 755 /home/rdpuser/.xsession
@@ -41,8 +54,6 @@ jobs:
           #!/bin/sh
           unset DBUS_SESSION_BUS_ADDRESS
           unset XDG_RUNTIME_DIR
-
-          # Speed & Rendering Optimizations
           export LIBGL_ALWAYS_SOFTWARE=1
           export QT_QUICK_BACKEND=software
           export XDG_CONFIG_DIRS=/etc/xdg/xdg-LXQt:/etc/xdg:/etc
